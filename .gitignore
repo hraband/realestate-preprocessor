@@ -2,3 +2,5 @@
 __pycache__/
 *.py[cod]
 *.log
+data/raw_listings.jsonl
+data/*.jsonl # if there are other large files
