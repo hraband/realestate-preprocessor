@@ -1,45 +1,85 @@
 import re
 import unicodedata
-from typing import List
+from typing import List, Optional, Union
+from datetime import datetime, date
 
 from .models import RawListing, NormalizedListing
 
-# 1. Price parsing: strip currency, thousands‐sep, convert to int
-def parse_price(raw: str) -> int:
-    # remove all non-digit and non-dot characters
-    cleaned = re.sub(r"[^\d\.]", "", raw)
-    # if there are multiple dots (e.g. “1.200.00”), assume last is decimal
-    if cleaned.count('.') > 1:
-        parts = cleaned.split('.')
-        # join all but last as integer part, keep last as decimal
-        cleaned = "".join(parts[:-1]) + "." + parts[-1]
-    try:
-        value = float(cleaned)
-    except ValueError:
-        value = 0.0
-    return int(round(value))
+def parse_price(raw: Union[str, float, int]) -> int:
+    if isinstance(raw, (int, float)):
+        return int(round(raw))
 
-# 2. Floor parsing: extract first integer, ground→0
-def parse_floor(raw: str) -> int:
-    raw = raw.strip().lower()
-    if raw.startswith(("ground", "g")):
+    s = re.sub(r"[^\d\.,]", "", raw or "")
+    # both comma & dot present?
+    if "," in s and "." in s:
+        # US style: comma before dot → thousands sep
+        if s.find(",") < s.find("."):
+            s = s.replace(",", "")
+        # EU style: dot before comma → thousands & decimal
+        else:
+            s = s.replace(".", "").replace(",", ".")
+    # only comma present → decimal sep
+    elif "," in s:
+        s = s.replace(",", ".")
+    # else only dots or none → leave as is
+
+    # collapse any extra dots into a single decimal point
+    if s.count(".") > 1:
+        parts = s.split(".")
+        s = "".join(parts[:-1]) + "." + parts[-1]
+
+    try:
+        return int(round(float(s)))
+    except ValueError:
         return 0
-    m = re.search(r"(\d+)", raw)
+
+
+def parse_floor(raw: Optional[Union[str, int]]) -> int:
+    if raw is None:
+        return 0
+    if isinstance(raw, int):
+        return raw
+    txt = raw.strip().lower()
+    if txt.startswith(("ground", "g")):
+        return 0
+    m = re.search(r"(\d+)", txt)
     return int(m.group(1)) if m else 0
 
-# 3. Living space: if numeric, use as-is; if str, strip units
-def parse_living_space(raw) -> float:
+def parse_rooms(raw: Optional[Union[float, int, str]]) -> float:
+    if raw is None:
+        return 0.0
     if isinstance(raw, (int, float)):
         return float(raw)
-    cleaned = re.sub(r"[^\d\.]", "", raw)
+    cleaned = re.sub(r"[^\d\.,]", "", raw)
     try:
-        return float(cleaned)
+        return float(cleaned.replace(',', '.'))
     except ValueError:
         return 0.0
 
-# 4. Category mapping
-def map_category(raw: str) -> str:
-    txt = raw.strip().lower()
+def parse_living_space(raw: Optional[Union[float, int, str]]) -> float:
+    if raw is None:
+        return 0.0
+    if isinstance(raw, (int, float)):
+        return float(raw)
+    cleaned = re.sub(r"[^\d\.,]", "", raw)
+    try:
+        return float(cleaned.replace(',', '.'))
+    except ValueError:
+        return 0.0
+
+def parse_additional_costs(raw: Optional[Union[str, float, int]]) -> float:
+    if raw is None:
+        return 0.0
+    if isinstance(raw, (int, float)):
+        return float(raw)
+    cleaned = re.sub(r"[^\d\.,]", "", raw)
+    try:
+        return float(cleaned.replace(',', '.'))
+    except ValueError:
+        return 0.0
+
+def map_category(raw: Optional[str]) -> str:
+    txt = (raw or "").strip().lower()
     if "apartment" in txt:
         return "apartment"
     if "house" in txt:
@@ -50,27 +90,42 @@ def map_category(raw: str) -> str:
         return "commercial"
     return "other"
 
-# 5. Text cleaning: remove accents, lowercase, collapse whitespace
-def clean_text(raw: str) -> str:
-    # normalize unicode (e.g. ü → u)
+def clean_text(raw: Optional[str]) -> str:
+    if not raw:
+        return ""
     text = unicodedata.normalize("NFKD", raw)
-    # remove combining marks
     text = "".join(c for c in text if not unicodedata.combining(c))
-    # lowercase
     text = text.lower()
-    # remove punctuation
     text = re.sub(r"[^\w\s]", " ", text)
-    # collapse whitespace
     text = re.sub(r"\s+", " ", text).strip()
     return text
 
-# 6. Main normalization function
+def parse_published(raw: Optional[str]) -> Optional[date]:
+    if not raw:
+        return None
+    try:
+        dt = datetime.fromisoformat(raw.replace('Z', '+00:00'))
+        return dt.date()
+    except Exception:
+        return None
+
+def parse_build_year(raw: Optional[Union[str, int]]) -> Optional[int]:
+    if raw is None:
+        return None
+    try:
+        return int(raw)
+    except Exception:
+        return None
+
 def normalize_listings(raw_list: List[RawListing]) -> List[NormalizedListing]:
     out: List[NormalizedListing] = []
+    today = date.today()
+
     for item in raw_list:
         price = parse_price(item.price)
         living = parse_living_space(item.living_space)
         floor = parse_floor(item.floor)
+        rooms = parse_rooms(item.rooms)
         category = map_category(item.property_category)
         title = clean_text(item.title)
         street = clean_text(item.property_location.street)
@@ -78,15 +133,32 @@ def normalize_listings(raw_list: List[RawListing]) -> List[NormalizedListing]:
         # engineered features
         price_per_sqm = round(price / living, 2) if living > 0 else 0.0
         title_length = len(title)
+        title_word_count = len(title.split())
+        desc = clean_text(item.description)
+        description_length = len(desc)
+        description_word_count = len(desc.split())
+        additional_costs = parse_additional_costs(item.additional_costs)
+        build_year = parse_build_year(item.build_year)
+        age = (today.year - build_year) if build_year and today.year >= build_year else None
+        pub_date = parse_published(item.published_datetime)
+        days_since_published = (today - pub_date).days if pub_date else None
 
         out.append(NormalizedListing(
             price=price,
             floor=floor,
             living_space=living,
+            rooms=rooms,
             propertyCategory=category,
             title=title,
             street=street,
             price_per_sqm=price_per_sqm,
-            title_length=title_length
+            title_length=title_length,
+            title_word_count=title_word_count,
+            description_length=description_length,
+            description_word_count=description_word_count,
+            additional_costs=additional_costs,
+            build_year=build_year,
+            age=age,
+            days_since_published=days_since_published
         ))
     return out

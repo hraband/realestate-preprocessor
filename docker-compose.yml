@@ -1,0 +1,31 @@
+version: '3.8'
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: service/Dockerfile
+    image: listings-api:latest
+    ports:
+      - "8000:80"
+    environment:
+      PYTHONPATH: /app
+  
+  processor:
+    build:
+      context: .
+      dockerfile: processor/Dockerfile
+    image: listings-processor:latest
+ 
+    volumes:
+      - ./data:/data
+    entrypoint: ["python", "-m", "processor.processor"]
+    command:
+      - "--input"
+      - "/data/raw_listings.jsonl"
+      - "--output"
+      - "/data/normalized_listings.jsonl"
+      - "--url"
+      - "http://api/normalize"
+      - "--batch-size"
+      - "50"
