@@ -1,14 +1,32 @@
+"""
+models.py
+
+Defines the data models for the normalization API using Pydantic.
+
+- RawListing: Represents an unprocessed real estate listing as received from the data source.
+- NormalizedListing: Represents a cleaned and standardized listing used downstream.
+- Coordinates and PropertyLocation: Substructures embedded within listings.
+"""
+
 from typing import Optional, Union
 from datetime import datetime
 from pydantic import BaseModel, field_validator
 
 
 class Coordinates(BaseModel):
+    """
+    Latitude and longitude representation.
+    Accepts float or values that can be parsed to float.
+    """
     lat: Optional[float]
     lng: Optional[float]
 
     @field_validator('lat', 'lng', mode='before')
     def parse_float_nullable(cls, v):
+        """
+        Convert values to float if possible; otherwise return None.
+        Handles strings or malformed input gracefully.
+        """
         try:
             return float(v)
         except (TypeError, ValueError):
@@ -16,6 +34,9 @@ class Coordinates(BaseModel):
 
 
 class PropertyLocation(BaseModel):
+    """
+    Address and geographical metadata of the property.
+    """
     street: Optional[str]
     zip: Optional[str]
     city: Optional[str]
@@ -24,6 +45,12 @@ class PropertyLocation(BaseModel):
 
 
 class RawListing(BaseModel):
+    """
+    A raw real estate listing, as scraped from a property platform.
+
+    Many fields are loosely typed to accommodate free-text, numeric, or inconsistent formats.
+    This model will be transformed into a NormalizedListing via the normalization pipeline.
+    """
     id: str
     platform: str
     price: Union[str, float, int]
@@ -46,13 +73,22 @@ class RawListing(BaseModel):
 
     @field_validator('published_datetime', mode='before')
     def parse_published_datetime(cls, v):
-        # Treat empty strings as None; let Pydantic parse valid dates
+        """
+        Normalize published date input:
+        - Converts empty strings or nulls to None
+        - Allows datetime parsing by Pydantic for valid values
+        """
         if not v or (isinstance(v, str) and not v.strip()):
             return None
         return v
 
 
 class NormalizedListing(BaseModel):
+    """
+    A normalized, clean real estate listing used for downstream analytics or machine learning.
+
+    Fields are strictly typed and reflect values computed or inferred from the RawListing.
+    """
     price: int
     floor: int
     living_space: float

@@ -1,14 +1,33 @@
-# Real Estate Preprocessor
+# 🏠 Real Estate Preprocessor
 
-A simple two-part pipeline to normalize real‑estate listings from various platforms for downstream matching and ML tasks.
+A simple two-part pipeline to normalize real-estate listings from various platforms for downstream matching and ML tasks.
 
 ---
 
-## 📦 Project Structure
+## 📖 Project Overview
 
-* **service/** – FastAPI app exposing a `/normalize` endpoint.
-* **processor/** – CLI tool that reads raw JSONL, calls the service, and writes normalized output.
-* **tests/** – Unit tests for normalization logic.
+This solution implements a modular, Python-based data normalization pipeline designed to:
+
+1. **Ingest** raw JSONL listings from multiple property platforms via a lightweight CLI tool.  
+2. **Normalize** varied field formats (prices, areas, categories, text) through a RESTful service.  
+3. **Produce** a unified dataset enriched with engineered features (e.g., price per square meter, text length) ready for ML-powered matching.
+
+**Why this approach?**  
+- **Separation of concerns:** A dedicated processor handles I/O and batching, while the service focuses on data transformation logic.  
+- **FastAPI:** Chosen for its high performance, built-in async support, and automatic OpenAPI/Swagger documentation—critical for scaling and maintainability.  
+- **Requests library:** Simple, reliable HTTP client for inter-process communication in the processor.  
+- **Pydantic:** Ensures strict validation and parsing of incoming and outgoing data models, minimizing runtime errors.
+
+---
+
+## 📂 Project Structure
+
+* **service/** – FastAPI app exposing a `/normalize` endpoint.  
+* **processor/** – CLI tool (Click) that reads raw JSONL, calls the service, and writes normalized output.  
+* **tests/** – Pytest-based unit tests covering both normalization rules and feature engineering logic.  
+* **Dockerfile** – Defines container image for the service with all dependencies.  
+* **docker-compose.yml** – Orchestrates both service and processor for local end-to-end testing.
+
 
 ---
 
@@ -16,35 +35,121 @@ A simple two-part pipeline to normalize real‑estate listings from various plat
 
 ### Prerequisites
 
-* Python 3.9+
-* `pip` to install dependencies
-* Docker (optional, see section below)
+* Python 3.9+  
+* `pip` to install dependencies  
+* Docker & Docker Compose (optional)
 
 ### Install dependencies
 
 ```bash
 pip install -r requirements.txt
 ```
+### ⚠️ Prepare Input Data (Required)
 
-### Run the service
+Before running the CLI tool or Docker pipeline, make sure your input file (e.g. `raw_listings.jsonl`) is placed in the `data/` directory at the root of the project:
+realestate-preprocessor/data/raw_listings.jsonl
 
+### Run the service (Pure-Python)
 ```bash
 uvicorn service.app.main:app --reload --host 0.0.0.0 --port 8000
 ```
-
 ### Normalize via CLI
-
 ```bash
 python -m processor.processor \
   --input data/raw_listings.jsonl \
   --output data/normalized_listings.jsonl \
   --url http://localhost:8000/normalize \
   --batch-size 50
+  ```
+> 🚀 **Scaling tip:**  
+> For large datasets (e.g. millions of listings), consider increasing `--batch-size` (e.g. 500 or 1000) to reduce the number of HTTP requests and improve throughput.  
+> The current implementation processes batches sequentially — parallel or async processing may be added in the future for high-throughput environments.
+
+
+## 🐳 Docker & Deployment
+
+A `Dockerfile` and `docker-compose.yml` are provided to run both the API service and the processor.
+
+### Start the API
+
+To build the images and launch the API in the background:
+
+```bash
+docker-compose up -d --build
 ```
+
+The API is available at http://localhost:8000/normalize.
+
+Run the processor on demand
+To execute the processor and normalize the data:
+
+```bash
+docker-compose run --rm processor
+```
+This command uses the predefined arguments from the docker-compose.yml, processing raw_listings.jsonl and writing the output to normalized_listings.jsonl in the shared /data volume.
+
+One-liner: Build, run API, and normalize
+
+For convenience, both steps can be combined into a single command:
+
+```bash
+docker-compose up -d --build && docker-compose run --rm processor
+```
+This builds the services, starts the API in the background, and immediately runs the processor once. The API will remain running for any further normalization tasks.
+### Future metrics & tuning
+
+In production, both the service and processor can be instrumented with Prometheus metrics (e.g., request durations, batch processing time) and visualized in Grafana dashboards. This instrumentation supports data-driven batch-size optimization based on CPU, memory, and network metrics.
 
 ---
 
+## 📚 Documentation
+
+### 🧪 API Reference (Swagger & ReDoc)
+
+The FastAPI service exposes auto-generated interactive documentation:
+
+- **Swagger UI** — for interactive testing  
+  [http://localhost:8000/docs](http://localhost:8000/docs)
+
+- **ReDoc** — for clean OpenAPI spec browsing  
+  [http://localhost:8000/redoc](http://localhost:8000/redoc)
+
+These pages include:
+- The `/normalize` endpoint with full request/response models
+- Auto-generated field types and descriptions from Pydantic schemas
+
+### 🛠 Internal Code Documentation (pdoc)
+
+Developer-facing documentation for internal modules (e.g. `normalize.py`, `models.py`) is generated using [`pdoc`](https://pdoc.dev/).
+
+To generate the documentation locally:
+
+```bash
+PYTHONPATH=. pdoc service.app.models service.app.normalize --output-dir docs
+```
+---
+
+## 🧪 Testing
+
+Unit tests for the normalization logic are located in the `tests/` folder.
+
+You can run them locally using:
+
+```bash
+pytest
+```
+In the future, this test suite can be integrated into a CI/CD pipeline (e.g., GitHub Actions) to ensure every change to the normalization logic is automatically tested before deployment.
+
 ## 🧮 Data Analysis & Handling
+The exploratory data analysis and strategy decisions described here were conducted using a Jupyter Notebook located at:
+📄 notebooks/analysis.ipynb
+
+- **This notebook includes code cells for:** 
+  - Checking field completeness across ~60,000 listings
+  - Visualizing distributions (e.g., price, living space)
+  - Identifying outliers and skewed fields
+  - Supporting decisions around imputation, filtering, and feature engineering
+A static html version of this analysis is also included in the `docs/` folder as `analysis.html` for review without running the notebook.
 
 - **Field completeness**  
   Observed substantial missingness in several key fields (out of ~60 000 records):  
@@ -80,121 +185,253 @@ This strategy ensures that our normalized dataset is complete, robust to extreme
 
 ## 🔄 Normalization & Assumptions
 
-* **`price`**: parsed from strings or numbers into integer CHF values, stripping currency symbols, thousand‐separators, and decimals.
-* **`floor`**: mapped textual floors (`"ground"`, `"G"`) to `0`, numeric strings to ints.
-* **`living_space`**: extracted numeric m² from strings into floats.
-* **`propertyCategory`**: one of `apartment`, `house`, `ground`, `commercial`, `other`; relies on keyword matching.
-* **Text fields** (`title`, `street`): Unicode‐normalized, lowercased, non‐word chars removed, whitespace cleaned.
+This section outlines how each field is parsed, cleaned, and standardized, along with handling of edge cases and future considerations.
 
-*Unspecified or unparsable inputs default to safe values (0, empty string, or `other`).*
+---
+
+### `price`
+
+- Parsed as an integer (CHF), stripping all non-digit characters including currency symbols, thousand separators (`.`, `'`), and decimals.
+- Non-numeric entries like `"Prix sur demande"` are cleaned to an empty string, resulting in `price = 0` as a fallback.
+- Downstream logic can interpret `0` as "missing" and choose to drop or impute such records.
+
+**Outlier strategy**:
+- Extremely high values (e.g. CHF > 5,000,000) may be log-transformed or capped in downstream ML workflows.
+
+---
+
+### `floor`
+
+- Textual labels like `"ground"`, `"EG"`, `"Erdgeschoss"` are mapped to `0`.
+- Numeric strings are parsed as integers.
+- Non-numeric, unknown, or special cases (e.g. `"Penthouse"`, `"Dachgeschoss"`, `None`) default to `0`.
+
+**Known limitation**:
+- Both ground floor and top floor currently normalize to `0`, so the model can't differentiate them.
+
+**Future improvements**:
+- Map `"penthouse"` or `"top"` to `-1` or `max_floor + 1`.
+- Add boolean flags such as `is_ground_floor`, `is_top_floor`.
+- Use `null` when floor information is completely absent.
+
+---
+
+### `living_space`
+
+- Cleans inputs like `"85 m²"` or `"100,5"` by removing non-digit characters, replacing `,` with `.` and parsing as `float`.
+- Fallback to `0.0` if unparseable.
+- Outliers (≫ 500 m²) are retained but can be flagged or capped downstream.
+
+---
+
+### `propertyCategory`
+
+- Normalized to one of: `apartment`, `house`, `ground`, `commercial`, `other` via keyword-based matching.
+
+**Future enhancements**:
+- Expand keyword dictionary with multilingual support (e.g., `"wohnung"`, `"maison"`).
+- Handle fuzzy matches and synonyms (e.g., `"hotel-gastronomie"`, `"single-house"`).
+- Add subcategories like `office`, `parking`, `industrial`.
+- Consider using a lightweight classifier trained on labeled examples.
+
+---
+
+### Text fields (`title`, `street`, `description`)
+
+- Unicode-normalized (NFKD) to handle accents
+- HTML and punctuation removed
+- Lowercased and extra spaces collapsed
+- Missing values default to an empty string
+
+---
+
+### Text-based features
+
+These features aim to quantify listing descriptiveness for matching or quality scoring:
+
+- `title_length`: number of characters
+- `title_word_count`: number of words
+- `description_length` and `description_word_count`: same as above for the description
+
+---
+
+### Fallback defaults
+
+Any unspecified or unparseable values are normalized as follows:
+
+- Numbers → `0` or `0.0`
+- Text → empty string (`""`)
+- Categorical → `"other"`
+
+
+## 🔗 Platform Context
+
+ **Future consideration**:  
+ Each listing originates from a distinct portal (e.g., Homegate, Immoscout24, Comparis, etc.). Carrying the `platform` field through the pipeline enables several benefits:
+
+- **Preserve platform metadata**  
+  Retain the source portal for each record to enable downstream models to learn portal-specific patterns and biases.
+
+- **Platform-specific normalization**  
+  Handle quirks like locale-based number formats, currency symbols, or multilingual labels (e.g. `"wohnung"` vs. `"appartement"`) on a per-platform basis.
+
+- **Traceability**  
+  Store the original URL or source ID for each record to allow backtracking and human verification in the matching pipeline.
+
+- **Bias correction**  
+  Some platforms may systematically over- or under-price listings. Including `platform` as a model feature—or calibrating metrics like `price_per_sqm` by platform—can help reduce false positives.
+
 
 ---
 
 ## 🌟 Feature Engineering
 
-Implemented both numerical and textual signals to enrich the matching model:
-
-- **`price_per_sqm`**  
-  \(CHF/m²\)  
-  > `price / living_space`  
-  A core metric for comparing value across listings.
-
-- **`title_length`**  
-  > Character count of the cleaned `title`  
-  Serves as a proxy for marketing emphasis and descriptive richness.
-
-- **`description_length`**  
-  > Character count of the cleaned `description`  
-  Gauges listing detail depth.
-
-- **`has_parking`**  
-  > Boolean (“true” if any parking information present)  
-  Captures a key amenity often used in buyer preferences.
-
-- **`year_built`**  
-  > Normalized integer from `build_year` (0 if missing)  
-  Offers an age-based feature for condition and style.
-
-These engineered features help the downstream ML matcher weigh cost efficiency, verbosity, amenity presence, and property vintage when aligning similar listings. ```
-
+The following derived features were engineered to support ML-based property matching by capturing pricing efficiency, listing richness, recency, and key amenities.
 
 ---
 
-## 🤖 ML Matching Strategy
+### `price_per_sqm`  *(CHF per m²)*
+
+- For **sale** listings: `price` ÷ `living_space`
+- For **rent** listings: monthly `price` ÷ `living_space` (adjusted if provided in daily or annual terms)
+- Outlier values are either capped between the 5th and 95th percentiles or log-transformed prior to modeling
+
+This feature enables comparison across properties by adjusting cost to size — useful for aligning listings of different types or pricing schemes.
+
+---
+
+### `title_length`
+
+- Character count of the cleaned `title`
+- Serves as a proxy for marketing emphasis and descriptive richness
+
+---
+
+### `description_length`
+
+- Character count of the cleaned `description`
+- Reflects the amount of descriptive content, often correlated with listing quality or agent professionalism
+
+---
+
+### `has_parking`
+
+- Boolean: `true` if parking is mentioned anywhere in the raw data
+- Captures a key amenity often used in buyer filters
+- Helps prevent false-positive matches between similar properties with/without parking
+
+---
+
+### `year_built`
+
+- Integer normalized from the `build_year` field
+- Defaults to `0` if missing
+- Can be used to infer property condition, design era, or renovation likelihood
+
+---
+
+### `days_since_published`
+
+- Integer: difference in days between `crawl_datetime` and `published_datetime`
+- Highlights listing freshness, reducing the risk of matching with stale or unavailable properties
+
+---
+
+These engineered signals enable the matching model to weigh cost-efficiency, listing verbosity, amenity presence, and recency — all of which are critical in distinguishing near-duplicate or equivalent listings across platforms.
+
+---
+
 
 ## 🤖 ML Matching Strategy
 
-### 1. Extra Helpful Fields
-To improve matching precision and recall, the following additional fields are highly valuable:
-- **Bedrooms**: number of sleeping rooms.
-- **Location bucket**: group nearby latitude/longitude cells to compare within the same neighborhood.
-- **Amenities count**: count keywords like “garage,” “pool,” “garden” in the description.
-- **Listing age**: days since the listing went live.
-- **Seller type**: company vs. private.
-- **Price per m²**: price divided by living space.
-- **Text embeddings**: numeric vectors summarizing title and description using a lightweight encoder.
+This section outlines additional data fields, candidate filtering strategies, model architectures, and scalable workflows designed to support accurate and efficient real-estate listing matching across platforms.
 
-### 2. Fast Candidate Filtering (“Blocking”)
-Efficiently reduce the number of comparisons by:
-- Restricting to listings in the same or adjacent **location bucket**.
-- Filtering to those within **±10% price per m²** and **±1 bedroom**.
-- Optionally applying a **simple text hash** on cleaned titles to catch obvious duplicates.
+---
+
+### 1. Valuable Additional Fields
+
+To improve matching precision and recall, the following fields are especially useful:
+
+- **Bedrooms** – number of sleeping rooms  
+- **Location bucket** – group listings by nearby coordinates (e.g., grid cell or H3 index)  
+- **Amenities count** – count of terms like "garage", "pool", "garden"  
+- **Listing age** – days since the listing was first published  
+- **Seller type** – distinguish company vs. private  
+- **Price per m²** – normalized cost signal  
+- **Text embeddings** – vector representations of title and description (e.g., via MiniLM)
+
+---
+
+### 2. Candidate Filtering ("Blocking")
+
+To reduce computational cost at scale, apply lightweight filters before ML inference:
+
+- Only compare listings in the same or adjacent **location bucket**
+- Filter candidates within **±10% price per m²** and **±1 bedroom**
+- Optionally use a **hash or fingerprint** on cleaned titles for obvious duplicates
+
+---
 
 ### 3. Proposed ML Approaches
-Two complementary approaches are proposed:
 
-- **Siamese Network**
-  - Two identical neural “towers” process text embeddings and numeric features.
-  - Cosine similarity between their 128-dimensional outputs yields a match score (0–1).
-  - Especially powerful when labeled pairs are available.
+Three viable model strategies:
 
-- **Gradient-Boosted Trees (e.g. XGBoost)**
-  - Handcrafted feature differences (e.g., price difference, bedroom difference, embedding distance).
-  - One-hot encoded categorical fields.
-  - Predicts match probability from structured feature inputs.
+- **Siamese Neural Network**  
+  - Two identical subnetworks process input pairs (e.g., title, description, price, etc.)  
+  - Cosine similarity between the outputs yields a match score (0–1)  
+  - Effective with labeled training data and complex similarity patterns
 
-- **RAG-Style Simple Embedding Matching**
-  - Precompute embeddings using a pre-trained Sentence Transformer (e.g., `all-MiniLM-L6-v2`).
-  - Index embeddings with a fast nearest-neighbor engine (e.g., Faiss).
-  - Retrieve top‑K similar listings; optionally apply numeric filters.
-  - Requires no labeled training data and deploys rapidly.
+- **Gradient-Boosted Trees (e.g., XGBoost)**  
+  - Trained on handcrafted feature differences (e.g., price delta, embedding distance)  
+  - Fast to train, interpretable, and robust on structured data  
+
+- **RAG-Style Embedding Matching**  
+  - Generate embeddings via pre-trained model (e.g., `all-MiniLM-L6-v2`)  
+  - Index with Faiss for fast retrieval  
+  - Requires no labels and deploys quickly
+
+---
+
 ### 🔍 Comparison of Approaches
 
-| Approach                     | Strengths                                        | Weaknesses                                      | Best Use Case                           |
-|------------------------------|-------------------------------------------------|------------------------------------------------|----------------------------------------|
-| **Siamese Network**          | Learns rich similarity patterns, handles complex signals | Needs labeled data, requires training, slower to develop | When labeled match/no-match data is available and you need high precision |
-| **Gradient-Boosted Trees**   | Strong tabular performance, interpretable, fast to train | Needs labeled match/non-match pairs, manual feature engineering, limited on raw text | When you can design good numeric + categorical features and have labeled pairs |
-| **RAG-Style Embedding Matching** | No training needed, fast to implement, scalable with Faiss | Relies on pre-trained embeddings, may miss domain-specific patterns | When you need a pragmatic, production-ready solution with minimal labeled data |
+| Approach                     | Strengths                                              | Limitations                                           | Best Use Case                                          |
+|------------------------------|---------------------------------------------------------|--------------------------------------------------------|--------------------------------------------------------|
+| **Siamese Network**          | Learns complex similarity patterns, works well with text | Needs labeled data, slower dev cycle                   | High-precision use cases with labeled match data       |
+| **Gradient-Boosted Trees**   | Fast, interpretable, good tabular performance           | Needs labels, manual feature engineering               | Structured data with labeled examples                  |
+| **RAG-style Embedding Matching** | No training needed, fast to deploy, scalable             | May miss domain-specific context                       | Cold-start or low-label scenarios with fast turnaround |
 
+---
 
 ### 4. Scaling to 40,000+ Listings
-- Precompute all text and numeric features once.
-- Build a **vector index** (e.g., Faiss) on the 128‑dimensional embeddings.
-- For each listing:
-  1. Retrieve the top K nearest neighbors (e.g., K=50) from the index.
-  2. Run the full scoring model (Siamese or XGBoost) only on this reduced candidate set.
-- This hybrid approach balances **speed** and **accuracy** at scale.
 
-### 5. Example Workflow
-1. **Listing A**: 2 beds, CHF 8,000/m², lake‑view, title “Bright 2‑bed apartment.”
-2. **Listing B**: 2 beds, CHF 7,900/m², same block, title “2‑room flat close to lake.”
-3. Both pass **location and price filters**.
-4. A **cosine similarity of 0.95** from the Siamese network indicates a likely duplicate match.
+Efficient hybrid matching strategy for large-scale datasets:
+
+1. **Precompute** all embeddings and numerical features  
+2. **Index** listings using a vector database (e.g., Faiss)  
+3. For each new listing:  
+   - Retrieve top K candidates from the index  
+   - Score only these candidates using the full ML model (e.g., Siamese or XGBoost)  
+   
+This architecture balances **speed** and **accuracy**.
+
+---
+
+### 5. Example: Matching in Practice
+
+- **Listing A**: 2 beds, CHF 8,000/m², lake-view, title: “Bright 2-bed apartment”  
+- **Listing B**: 2 beds, CHF 7,900/m², same location, title: “2-room flat close to lake”  
+- They pass location and price filters  
+- A **cosine similarity of 0.95** from the Siamese network indicates a likely match
+
+---
 
 ### Summary
-This ML strategy blends pragmatic, production-ready solutions (RAG-style retrieval) with more sophisticated machine learning models (Siamese, XGBoost), allowing rapid iteration and future improvements.
+
+This strategy blends pragmatic, deployable solutions (RAG-style retrieval) with more advanced modeling (Siamese, GBT), enabling iterative improvements over time — from rule-based filtering to full ML matching pipelines.
+
  
 
----
 
-## 🐳 Docker & Deployment
 
-A `Dockerfile` and `docker-compose.yml` spin up both service and CLI runner.
-
-```bash
-docker-compose up --build
-```
----
-
-*Prepared by \Andrea Hrabovski, 2025*
+*Prepared by \ Andrea Hrabovski, 2025*
 

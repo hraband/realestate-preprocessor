@@ -5,4 +5,5 @@ __pycache__/
 data/raw_listings.jsonl
 data/challenge.jsonl.gz
 data/normalized_listings.jsonl
+data/raw_sample.jsonl
 data/*.jsonl # if there are other large files
