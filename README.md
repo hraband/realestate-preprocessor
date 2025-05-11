@@ -44,10 +44,10 @@ This solution implements a modular, Python-based data normalization pipeline des
 ```bash
 pip install -r requirements.txt
 ```
-### ⚠️ Prepare Input Data (Required)
+### 📂 Prepare Input Data
+Before running the CLI tool or Docker pipeline, ensure you have a valid .jsonl file containing raw real estate listings.
 
-Before running the CLI tool or Docker pipeline, make sure your input file (e.g. `raw_listings.jsonl`) is placed in the `data/` directory at the root of the project:
-realestate-preprocessor/data/raw_listings.jsonl
+You can place it anywhere and specify the path using the --input argument.
 
 ### Run the service (Pure-Python)
 ```bash
@@ -56,8 +56,8 @@ uvicorn service.app.main:app --reload --host 0.0.0.0 --port 8000
 ### Normalize via CLI
 ```bash
 python -m processor.processor \
-  --input data/raw_listings.jsonl \
-  --output data/normalized_listings.jsonl \
+  --input path/to/your/raw_listings.jsonl \
+  --output path/to/your/normalized_listings.jsonl \
   --url http://localhost:8000/normalize \
   --batch-size 50
   ```
@@ -68,7 +68,7 @@ python -m processor.processor \
 
 ## 🐳 Docker & Deployment
 
-A `Dockerfile` and `docker-compose.yml` are provided to run both the API service and the processor.
+A `Dockerfile` and `docker-compose.yml` are provided to run both the API service and the CLI processor in a coordinated environment.
 
 ### Start the API
 
@@ -86,7 +86,16 @@ To execute the processor and normalize the data:
 ```bash
 docker-compose run --rm processor
 ```
-This command uses the predefined arguments from the docker-compose.yml, processing raw_listings.jsonl and writing the output to normalized_listings.jsonl in the shared /data volume.
+This command uses the default arguments defined in docker-compose.yml, which expect:
+
+An input file at ./data/raw_listings.jsonl
+
+An output file to be written as ./data/normalized_listings.jsonl
+
+These files are accessed through a shared volume (./data:/data), so make sure your input file exists before running.
+
+🐳 Note: When using Docker, your input file must be placed in the data/ folder at the root of the project.
+You can modify the command: in docker-compose.yml or override it at runtime to use different paths.
 
 One-liner: Build, run API, and normalize
 
