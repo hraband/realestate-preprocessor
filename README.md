@@ -161,23 +161,30 @@ The exploratory data analysis and strategy decisions described here were conduct
 A static html version of this analysis is also included in the `docs/` folder as `analysis.html` for review without running the notebook.
 
 - **Field completeness**  
-  Observed substantial missingness in several key fields (out of ~60 000 records):  
-  - `plot_area`: ~33 800 missing  
-  - `parking`: ~31 700 missing  
-  - `additional_costs`: ~27 000 missing  
-  - `published_datetime`: ~22 200 missing  
-  - `build_year`: ~21 900 missing  
-  - `floor` & `rooms`: ~18 500 and ~9 600 missing respectively  
+  Observed substantial missingness in several key fields (out of ~40 000 records):  
+  - `plot_area`: ~33 819 missing  
+  - `parking`: ~31 741 missing (defaulted to `False`/`0.0`)  
+  - `additional_costs`: ~27 022 missing  
+  - `published_datetime`: ~22 167 missing  
+  - `build_year`: ~21 946 missing (median used for fallback: 55.0)  
+  - `floor`: ~18 532 missing  
+  - `rooms`: ~9 656 missing  
+  - `payment_interval`: ~7 285 missing  
+  - `living_space`: ~7 077 missing  
+  - `description`: ~205 missing  
+  - `property_category`: ~13 missing  
+  - `title`: ~11 missing  
+  - `seller_type`, `id`, `crawl_datetime`, `sale_type`, `platform`, `price`, and `property_location`: 0 missing
 
 - **Imputation & filtering strategies**  
   - **Numeric fields** with missing values are set to `None` in the Pydantic model (so downstream ML can decide), or to `0` when a zero‑value is semantically meaningful (e.g., `additional_costs`).  
   - **Categorical fields** (`propertyCategory`) map any missing or unrecognized text to `"other"`.  
   - **Text fields** (`title`, `description`, `street`) default to an empty string when missing.  
   - **Date fields** (`published_datetime`) become `None`, and derived `days_since_published` is set to `None`.  
-  - We **exclude** any record missing both `price` and `living_space` since key ratios (like price/m²) cannot be computed.
+  - **Excluded** any record missing both `price` and `living_space` since key ratios (like price/m²) cannot be computed.
 
 - **Outlier handling & scaling**  
-  - **Price** and **living_space** are highly right‑skewed; in a matching pipeline we recommend either **log‑transforming** or **clamping** them at the 1st–99th percentile to reduce the impact of extreme values.  
+  - **Price** and **living_space** are highly right‑skewed; in a matching pipeline recommended to either **log‑transforming** or **clamping** them at the 1st–99th percentile to reduce the impact of extreme values.  
   - The derived **`price_per_sqm`** also inherits this skew; apply the same capping or transformation before feeding into a model.  
   - Continuous features will be **standardized** or **robust‑scaled** in your ML preprocessing to mitigate different ranges and outliers.
 
